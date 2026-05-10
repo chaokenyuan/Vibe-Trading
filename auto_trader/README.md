@@ -1,130 +1,156 @@
-# vibe-auto-trader
+# auto_trader/
 
-個人化自動交易機器人，以 [HKUDS/Vibe-Trading](https://github.com/HKUDS/Vibe-Trading) 為策略研發與訊號來源，自建端到端執行層（訊號接收 + 風險控制 + 訂單執行 + 對帳 + 監控）。
+> Vibe-Trading fork 的自動下單子系統。
+> 上游 Vibe-Trading 負責研究 / 回測 / 訊號代碼導出；本子系統補上訊號接收 + 風控 + 下單 + 對帳 + 監控。
 
-> Status：MVP 開發中。當前已完成 `risk-gate` capability（風控閘）。
-
-## 架構（六大 capability）
-
-```
-TradingView Alert / Vibe-Trading scan
-        ▼
-┌─────────────────────────────────┐
-│ 1. signal-ingestion             │  訊號入口 + 路由 + 去重
-└────────┬────────────────────────┘
-         ▼ Signal
-┌─────────────────────────────────┐
-│ 2. strategy-host                │  策略生命週期 + LogicalBook
-└────────┬────────────────────────┘
-         ▼ OrderIntent
-┌─────────────────────────────────┐
-│ 3. risk-gate         ★ 已完成   │  FSM + RuleEngine + CapitalReserver
-└────────┬────────────────────────┘
-         ▼ Decision
-┌─────────────────────────────────┐
-│ 4. order-execution              │  CCXT → Exchange
-└────────┬────────────────────────┘
-         ▼ Fill events
-┌─────────────────────────────────┐
-│ 5. reconciliation               │  歸因 + LogicalBook 更新
-└────────┬────────────────────────┘
-         ▼
-┌─────────────────────────────────┐
-│ 6. observability                │  Audit log + Telegram + Kill switch
-└─────────────────────────────────┘
-```
-
-## Quickstart
-
-### 1. 安裝
+## 一頁 Quickstart
 
 ```bash
-git clone git@github.com:chaokenyuan/vibe-auto-trader.git
-cd vibe-auto-trader
-python -m venv .venv
-source .venv/bin/activate
+cd auto_trader/
+python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-```
 
-### 2. 驗證（mypy + pytest + ruff）
+# 跑全測試
+pytest -q                                   # 371 tests
+mypy risk/ signals/ strategies/ execution/ \
+     reconciliation/ observability/ reservation_bridge/ tests/   # 121 files
+ruff check .                                # clean
 
-```bash
-mypy risk/ signals/ strategies/ execution/ reconciliation/ observability/ reservation_bridge/ tests/
-pytest -q
-ruff check risk/ signals/ strategies/ execution/ reconciliation/ observability/ reservation_bridge/ tests/
-pytest --cov=risk --cov=signals --cov=strategies --cov=execution --cov=reconciliation --cov=observability --cov=reservation_bridge
-```
-
-### 3. 跑端到端 demo（不需真交易所/TV 帳號）
-
-```bash
+# 端到端 demo（不需真交易所）
 python scripts/demo.py
+
+# 啟動 webhook server + Dashboard / Settings UI
+export VIBE_TV_SECRET="$(python -c 'import secrets; print(secrets.token_urlsafe(24))')"
+python scripts/run_server.py
+# 瀏覽器：
+#   http://localhost:8000/         （Dashboard：FSM / ledger / PnL / equity 曲線 / K 線）
+#   http://localhost:8000/settings （Settings：reset / maintenance / 策略管理 / 模擬訊號）
 ```
 
-`scripts/demo.py` 用 ASGITransport + Mock adapter 串起全 8 個 capability，
-13 個 step 印出訊號從 webhook 進來、過 RiskGate、下單、fill 回報、reservation 釋放
-與 KILL_SWITCH 告警的完整流程。
+## 架構（8 個 capability）
 
-### 4. 在 Python 中使用 RiskGate（單獨用）
+```
+   TradingView Pine alert / Vibe scan
+       │
+       ▼
+   ┌──────────────────────────────────────────────────┐
+   │ signals/             訊號入口（4 SignalSource）    │
+   │   • TradingViewWebhookAdapter（完整實作）         │
+   │   • ManualCliAdapter                             │
+   │   • VibeShadowScannerAdapter（stub，待整合上游）   │
+   │   • Mt5HttpPushAdapter（stub）                    │
+   │   • SignalDedupe（5 min TTL）                     │
+   └──────────┬───────────────────────────────────────┘
+              ▼
+   ┌──────────────────────────────────────────────────┐
+   │ strategies/          策略主機 + LogicalBook       │
+   │   • Strategy Protocol、StrategyRegistry          │
+   │   • PassthroughStrategy（示範）                   │
+   │   • client_order_id 編碼（追蹤回 strategy）       │
+   └──────────┬───────────────────────────────────────┘
+              ▼
+   ┌──────────────────────────────────────────────────┐
+   │ risk/                雙層風控閘                    │
+   │   Layer 1：FSM（NORMAL/WARNING/THROTTLED/         │
+   │            HALTED/KILL_SWITCH/MAINTENANCE）      │
+   │   Layer 2：11 條規則（短路 + clamp）               │
+   │   CapitalReserver actor（asyncio.Queue）          │
+   └──────────┬───────────────────────────────────────┘
+              ▼
+   ┌──────────────────────────────────────────────────┐
+   │ execution/           訂單執行                      │
+   │   • OrderSink Protocol                           │
+   │   • ExchangeOrderSink + MockExecutionAdapter     │
+   │   • CcxtExecutionAdapter（stub）                  │
+   └──────────┬───────────────────────────────────────┘
+              ▼ broker fills
+   ┌──────────────────────────────────────────────────┐
+   │ reconciliation/      Fill 對帳                    │
+   │   • FillProcessor → LogicalBook.apply_fill        │
+   │   • BrokerPositionTracker（派生視圖）              │
+   │   • BookPositionReader（給 risk-gate 用）         │
+   └──────────────────────────────────────────────────┘
 
-```python
-from decimal import Decimal
-from risk.gate import RiskGate
+   ┌──────────────────────────────────────────────────┐
+   │ reservation_bridge/  自動釋放預留                  │
+   │   client_order_id ↔ reservation_id mapping       │
+   │   reject / fill 即釋放                            │
+   └──────────────────────────────────────────────────┘
 
-gate = RiskGate.from_config(
-    config_path="config/risk.yaml",
-    total_equity=Decimal("10000"),
-    strategy_budgets={"vibe_btc_v1": Decimal("5000")},
-    symbol_caps={"BTCUSDT": Decimal("4000")},
-    positions=...,       # 由 reconciliation capability 提供
-    market_data=...,     # 由 strategy-host 提供
-    config_reader=...,
-)
-
-await gate.start()
-decision = await gate.evaluate(intent)
-await gate.shutdown()
+   ┌──────────────────────────────────────────────────┐
+   │ observability/       稽核 + 告警 + 健康            │
+   │   • AuditLogWriter（JSON Lines）                  │
+   │   • AlertSink（LoggingAlertSink + Telegram stub） │
+   │   • PnLCalculator（unrealized + realized）        │
+   │   • create_health_app（FastAPI /health /readyz）  │
+   └──────────────────────────────────────────────────┘
 ```
 
-詳細使用說明見 [risk/README.md](risk/README.md)。
+## 目錄
 
-## 文件導覽
-
-| 文件 | 用途 |
+| 路徑 | 內容 |
 |------|------|
-| [docs/design-brief.md](docs/design-brief.md) | 探索階段成果（A/C/D 階段共識基線、附錄 C 為 Vibe-Trading 補課修訂） |
-| [risk/README.md](risk/README.md) | risk-gate capability 完整使用說明 + 雙層架構圖 |
-| [risk/rules/README.md](risk/rules/README.md) | 11 條規則對照表（已實作/stub） |
-| [config/README.md](config/README.md) | YAML 配置欄位速查 |
-| [openspec/specs/risk-gate/spec.md](openspec/specs/risk-gate/spec.md) | 風控閘 14 條 SHALL requirement + 41 個 scenario |
-| [openspec/changes/add-risk-gate/](openspec/changes/add-risk-gate/) | 第一個 OpenSpec change（proposal/design/specs/tasks） |
+| `risk/` | 雙層風控閘 + 11 規則實作 |
+| `signals/` | 訊號入口 + 4 adapter |
+| `strategies/` | Strategy + LogicalBook + Registry |
+| `execution/` | OrderSink + MockBroker + Ccxt stub |
+| `reconciliation/` | FillProcessor + PositionReader |
+| `observability/` | Audit + AlertSink + PnL + Health |
+| `reservation_bridge/` | 預留自動釋放 |
+| `tests/` | 371 tests（unit + integration + e2e） |
+| `config/` | 4 個 YAML（risk / signal / execution / observability） |
+| `static/` | Dashboard + Settings UI（HTML/JS + Chart.js） |
+| `scripts/` | `demo.py` + `run_server.py` |
+| `openspec/` | 8 個 archived change（spec / design / tasks） |
+| `docs/` | 探索 design-brief（含 Vibe-Trading 訊號介面修訂紀錄） |
 
-## 開發狀態
+## OpenSpec 規格驅動歷程
 
-| Capability | 狀態 | OpenSpec change |
-|-----------|------|-----------------|
-| risk-gate | 完成 archived | `add-risk-gate` |
-| signal-ingestion | 完成 archived | `add-signal-ingestion` |
-| strategy-host | 完成 archived | `add-strategy-host` |
-| order-execution | 完成 archived | `add-order-execution` |
-| reconciliation | 完成 archived | `add-reconciliation` |
-| observability | 完成 archived | `add-observability` |
-
-**全六個 capability 完整實作**：109 source files、385 tests passed、mypy strict / ruff clean。
-
-## 開發流程
-
-本專案採用 [OpenSpec](https://github.com/Fission-AI/OpenSpec) 規格驅動開發：
+8 個 archived change（每個都跑完 explore → propose → design → specs → tasks → apply → verify → archive）：
 
 ```
-explore → propose → design → specs → tasks → apply → verify → archive
+   add-risk-gate                  88 task / 14 SHALL / 41 scenarios
+   add-signal-ingestion           13 ch / 11 SHALL
+   add-strategy-host              9 ch
+   add-order-execution            8 ch
+   add-reconciliation             5 ch
+   add-observability              6 ch
+   add-reservation-release-bridge 4 ch
+   add-risk-rules-impl            REMOVED stubs + 9 ADDED rules
 ```
 
-每個新功能先寫 spec 取得共識，才進實作；spec 與代碼共同 commit。
+詳見 `openspec/specs/`（main specs）與 `openspec/changes/archive/`（每個 change 的完整 audit）。
 
-## 法務與風險
+## 與上游 Vibe-Trading 的整合方式
 
-- License: MIT
-- 個人自用研究專案，**不對外提供金融服務**
-- 自動交易涉及實質金錢損失風險，請在 testnet 充分驗證後才考慮實盤
-- 詳見 [docs/design-brief.md 附錄 C](docs/design-brief.md)
+### 訊號路徑（生產）
+
+1. Vibe-Trading 用 LLM agent 研發策略 → 導出 Pine Script
+2. 在 TradingView 部署 Pine Script + 設 alert webhook
+3. Webhook 打 auto_trader 的 `/webhook/tv/{secret}/{strategy_id}`
+4. auto_trader 跑完整鏈路：去重 → 風控 → 下單 → 對帳
+
+### 訊號路徑（研究級候選）
+
+1. `agent/src/shadow_account/scanner.py::scan_today_signals` 產候選清單
+2. `signals/adapters/stubs.py::VibeShadowScannerAdapter`（待整合）
+   定時拉取候選 → 推 SignalRouter
+3. 候選等級訊號建議搭配人工複核 + 加重風控
+
+## 後續路線圖
+
+- [ ] PnL chart 完整 wiring（dashboard.html，Chart.js 已加但需驗證真實資料）
+- [ ] VibeShadowScannerAdapter 真實實作（連 `agent/src/shadow_account/scanner.py`）
+- [ ] CcxtExecutionAdapter（Binance Testnet）
+- [ ] CcxtFillSource（WebSocket fill stream）
+- [ ] TelegramAlertSink 真實版
+
+## License
+
+MIT（與上游 Vibe-Trading 一致）。
+
+## 相關
+
+- 上游：[HKUDS/Vibe-Trading](https://github.com/HKUDS/Vibe-Trading)
+- 來源 repo：[chaokenyuan/vibe-auto-trader](https://github.com/chaokenyuan/vibe-auto-trader)（snapshot；後續開發在本 fork）
+- Migration 紀錄：見 `FORK_NOTICE.md`

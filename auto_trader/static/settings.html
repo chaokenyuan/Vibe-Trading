@@ -173,6 +173,23 @@
               },
             }, "→ " + target));
           }
+          // Delete button
+          actions.appendChild(el("button", {
+            class: "danger",
+            style: "margin-left: 8px;",
+            onclick: async () => {
+              if (!confirm(`移除策略 ${st.strategy_id}？此操作不可逆。`)) return;
+              try {
+                await fetchJson(`${API}/strategies/${st.strategy_id}/unregister`, {
+                  method: "POST",
+                });
+                toast(`${st.strategy_id} 已移除`, "success");
+                refreshState();
+              } catch (e) {
+                toast("失敗：" + e.message, "error");
+              }
+            },
+          }, "Delete"));
           body.appendChild(el("tr", {},
             el("td", { class: "mono" }, st.strategy_id),
             el("td", {}, el("span", { class: "strategy-state strategy-state-" + st.state }, st.state)),
@@ -192,6 +209,23 @@
         document.getElementById("config-display").textContent = "error: " + e.message;
       }
     }
+
+    document.getElementById("btn-register").addEventListener("click", async () => {
+      const sid = document.getElementById("new-strategy-id").value.trim();
+      const ver = document.getElementById("new-strategy-version").value.trim() || "1.0.0";
+      if (!sid) { toast("請填策略 ID", "error"); return; }
+      try {
+        await fetchJson(`${API}/strategies/register`, {
+          method: "POST",
+          body: JSON.stringify({ strategy_id: sid, strategy_version: ver }),
+        });
+        toast(`已註冊 ${sid}（LOADED；按 →ACTIVE 啟用）`, "success");
+        document.getElementById("new-strategy-id").value = "";
+        refreshState();
+      } catch (e) {
+        toast("註冊失敗：" + e.message, "error");
+      }
+    });
 
     document.getElementById("btn-reset").addEventListener("click", async () => {
       try {

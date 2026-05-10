@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -20,7 +20,7 @@ from uuid import uuid4
 # 確保可從任何 cwd 執行
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import httpx  # noqa: E402
+import httpx
 
 from execution.adapters.mock import MockExecutionAdapter
 from execution.sink import ExchangeOrderSink
@@ -48,7 +48,7 @@ from strategies.registry import StrategyRegistry
 from strategies.strategies.passthrough import PassthroughStrategy
 from strategies.types import Fill, StrategyState
 
-UTC = timezone.utc
+UTC = UTC
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 

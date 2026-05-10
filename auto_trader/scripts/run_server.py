@@ -34,7 +34,7 @@ import logging
 import os
 import signal
 import sys
-from datetime import datetime, timezone
+from datetime import UTC
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -43,37 +43,37 @@ from uuid import uuid4
 # 確保可從任何 cwd 執行
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import uvicorn  # noqa: E402
-from fastapi import FastAPI  # noqa: E402
-from pydantic import BaseModel  # noqa: E402
+import uvicorn
+from fastapi import FastAPI
+from pydantic import BaseModel
 
-from execution.adapters.mock import MockExecutionAdapter  # noqa: E402
-from execution.sink import ExchangeOrderSink  # noqa: E402
-from observability.adapters.logging_sink import LoggingAlertSink  # noqa: E402
-from observability.alert_router import AlertRouter  # noqa: E402
-from observability.audit_log import AuditLogWriter  # noqa: E402
-from observability.health import create_health_app  # noqa: E402
-from reconciliation.processor import FillProcessor  # noqa: E402
-from reservation_bridge.bridge import ReservationBridge  # noqa: E402
-from risk.adapters.in_memory_publisher import InMemoryEventPublisher  # noqa: E402
-from risk.adapters.system_clock import SystemClock  # noqa: E402
-from risk.config import RiskConfig  # noqa: E402
-from risk.gate import RiskGate  # noqa: E402
-from risk.reservation.ledger import ReservationLedger  # noqa: E402
-from risk.state.persistence import InMemoryStateStore  # noqa: E402
-from signals.adapters.tradingview import (  # noqa: E402
+from execution.adapters.mock import MockExecutionAdapter
+from execution.sink import ExchangeOrderSink
+from observability.adapters.logging_sink import LoggingAlertSink
+from observability.alert_router import AlertRouter
+from observability.audit_log import AuditLogWriter
+from observability.health import create_health_app
+from reconciliation.processor import FillProcessor
+from reservation_bridge.bridge import ReservationBridge
+from risk.adapters.in_memory_publisher import InMemoryEventPublisher
+from risk.adapters.system_clock import SystemClock
+from risk.config import RiskConfig
+from risk.gate import RiskGate
+from risk.reservation.ledger import ReservationLedger
+from risk.state.persistence import InMemoryStateStore
+from signals.adapters.tradingview import (
     TradingViewWebhookAdapter,
     create_tradingview_app,
 )
-from signals.config import TradingViewConfig  # noqa: E402
-from signals.dedupe import SignalDedupe  # noqa: E402
-from signals.router import SignalRouter  # noqa: E402
-from strategies.host import StrategyHost  # noqa: E402
-from strategies.registry import StrategyRegistry  # noqa: E402
-from strategies.strategies.passthrough import PassthroughStrategy  # noqa: E402
-from strategies.types import StrategyState  # noqa: E402
+from signals.config import TradingViewConfig
+from signals.dedupe import SignalDedupe
+from signals.router import SignalRouter
+from strategies.host import StrategyHost
+from strategies.registry import StrategyRegistry
+from strategies.strategies.passthrough import PassthroughStrategy
+from strategies.types import StrategyState
 
-UTC = timezone.utc
+UTC = UTC
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -353,12 +353,12 @@ def build_app() -> tuple[FastAPI, RiskGate, MockExecutionAdapter]:
 
     def _state_snapshot() -> dict[str, Any]:
         """系統狀態快照（dashboard / settings UI 共用）。"""
-        from datetime import timezone as _tz
+        from datetime import UTC as _UTC
         from datetime import datetime as _dt
         return {
             "fsm_state": risk_gate.state.value,
             "started_at": getattr(_state_snapshot, "_started_at", None),
-            "now": _dt.now(_tz.utc).isoformat(),
+            "now": _dt.now(_UTC).isoformat(),
             "enabled_rules": [type(r).__name__ for r in risk_gate._engine._rules],
             "ledger": {
                 "total_equity": str(ledger.total_equity),
@@ -556,7 +556,7 @@ def build_app() -> tuple[FastAPI, RiskGate, MockExecutionAdapter]:
             await asyncio.sleep(1.0)
 
     # 把 sampler task 掛到 tv_app 屬性上，由 _async_main 啟停
-    tv_app.state.equity_sampler = _equity_sampler  # type: ignore[attr-defined]
+    tv_app.state.equity_sampler = _equity_sampler
 
     # 紀錄啟動時間（state snapshot 用）
     _state_snapshot._started_at = clock.now().isoformat()  # type: ignore[attr-defined]
@@ -572,7 +572,7 @@ async def _async_main() -> None:
     await risk_gate.start()
 
     # 啟動背景 equity sampler
-    sampler_coro = app.state.equity_sampler  # type: ignore[attr-defined]
+    sampler_coro = app.state.equity_sampler
     sampler_task = asyncio.create_task(sampler_coro())
 
     # banner
@@ -580,8 +580,8 @@ async def _async_main() -> None:
     print("=" * 70)
     print("  vibe-auto-trader webhook server")
     print("=" * 70)
-    print(f"  Dashboard   : http://localhost:8000/")
-    print(f"  Settings UI : http://localhost:8000/settings")
+    print("  Dashboard   : http://localhost:8000/")
+    print("  Settings UI : http://localhost:8000/settings")
     print(f"  Webhook URL : http://localhost:8000/webhook/tv/{secret}/vibe_btc_v1")
     print("  Health      : http://localhost:8000/_health/health")
     print("  API state   : http://localhost:8000/api/state")
@@ -611,22 +611,19 @@ async def _async_main() -> None:
         logger.info("shutdown signal received")
         server.should_exit = True
 
+    import contextlib as _ctx
     for sig_name in ("SIGINT", "SIGTERM"):
-        try:
-            loop.add_signal_handler(getattr(signal, sig_name), _shutdown)
-        except NotImplementedError:
+        with _ctx.suppress(NotImplementedError):
             # Windows 不支援
-            pass
+            loop.add_signal_handler(getattr(signal, sig_name), _shutdown)
 
     try:
         await server.serve()
     finally:
         logger.info("shutting down RiskGate...")
         sampler_task.cancel()
-        try:
+        with _ctx.suppress(asyncio.CancelledError, Exception):
             await sampler_task
-        except (asyncio.CancelledError, Exception):
-            pass
         await risk_gate.shutdown()
         logger.info("server stopped. Mock broker submitted %d order(s)", len(mock_broker.submitted))
 
