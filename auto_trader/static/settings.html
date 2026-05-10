@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>vibe-auto-trader · Settings</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>vibe-auto-trader</h1>
+    <nav>
+      <a href="/" data-page="dashboard">Dashboard</a>
+      <a href="/settings" data-page="settings">Settings</a>
+      <a href="/_health/health" target="_blank">Health</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="grid grid-2">
+      <!-- 風控閘控制 -->
+      <div class="panel">
+        <h2>Risk Gate Controls</h2>
+        <p class="hint">系統 FSM 處於下方狀態時，需透過此介面手動恢復。</p>
+        <div class="kv" style="margin: 12px 0;">
+          <div class="k">當前狀態</div>
+          <div class="v"><span id="fsm-state" class="fsm-badge fsm-NORMAL">—</span></div>
+        </div>
+        <div class="section-row">
+          <button id="btn-reset" class="warning">Reset → NORMAL</button>
+          <span class="hint">HALTED / KILL_SWITCH 須冷靜期過後才生效</span>
+        </div>
+        <div class="section-row">
+          <button id="btn-maintenance">Enter Maintenance</button>
+          <button id="btn-exit-maintenance">Exit Maintenance</button>
+          <span class="hint">維護模式拒所有訊號但不全平</span>
+        </div>
+      </div>
+
+      <!-- FSM 模擬觸發（測試用） -->
+      <div class="panel">
+        <h2>FSM Simulation（測試用）</h2>
+        <p class="hint">手動推一次 tick，模擬不同 PnL / API 錯誤率。</p>
+        <div class="section-row">
+          <label>PnL ratio:</label>
+          <input id="sim-pnl" type="text" value="0.0" style="width: 80px;">
+          <label>API err rate:</label>
+          <input id="sim-err" type="text" value="0.0" style="width: 80px;">
+          <button id="btn-tick">Tick</button>
+        </div>
+        <div class="hint">
+          範例：PnL=-0.025 → WARNING；-0.05 → HALTED；-0.08 → KILL_SWITCH
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top: 16px;">
+      <h2>Strategies</h2>
+      <p class="hint">切換策略狀態 / 註冊新策略 / 移除策略。</p>
+
+      <div class="section-row" style="margin-bottom: 12px;">
+        <label>新策略 ID:</label>
+        <input id="new-strategy-id" type="text" placeholder="vibe_eth_v1" style="width: 180px;">
+        <label>Version:</label>
+        <input id="new-strategy-version" type="text" value="1.0.0" style="width: 80px;">
+        <button id="btn-register">Register</button>
+        <span class="hint">註冊後初始為 LOADED；按 →ACTIVE 啟用</span>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Strategy ID</th>
+            <th>Current State</th>
+            <th>Version</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="strategies-body">
+          <tr><td colspan="4" class="empty">loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="grid grid-2" style="margin-top: 16px;">
+      <div class="panel">
+        <h2>Risk Config（read-only）</h2>
+        <p class="hint">配置變更需修改 config/risk.yaml 並重啟服務。</p>
+        <pre id="config-display" class="mono" style="background: var(--panel-2); padding: 12px; border-radius: 4px; max-height: 300px; overflow: auto;">loading…</pre>
+      </div>
+
+      <div class="panel">
+        <h2>Test：模擬訊號</h2>
+        <p class="hint">手動送一筆 webhook（用此 server 設定的 secret）。</p>
+        <div class="section-row">
+          <label>Secret:</label>
+          <input id="webhook-secret" type="text" placeholder="VIBE_TV_SECRET" style="flex: 1;">
+        </div>
+        <div class="section-row">
+          <label>Symbol:</label>
+          <input id="webhook-symbol" type="text" value="BTCUSDT" style="width: 120px;">
+          <label>Side:</label>
+          <select id="webhook-side">
+            <option>BUY</option>
+            <option>SELL</option>
+            <option>CLOSE</option>
+          </select>
+        </div>
+        <div class="section-row">
+          <label>Qty:</label>
+          <input id="webhook-qty" type="text" value="0.1" style="width: 80px;">
+          <label>Price:</label>
+          <input id="webhook-price" type="text" value="65000" style="width: 100px;">
+        </div>
+        <div class="section-row">
+          <button id="btn-send-webhook">Send Webhook</button>
+          <span id="webhook-status" class="hint">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top: 16px;">
+      <h2>Recent Audit Events</h2>
+      <button id="btn-refresh-audit" style="margin-bottom: 8px;">Refresh</button>
+      <table>
+        <thead>
+          <tr>
+            <th>at</th>
+            <th>type</th>
+            <th>summary</th>
+          </tr>
+        </thead>
+        <tbody id="audit-body">
+          <tr><td colspan="3" class="empty">click Refresh</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+    setActivePage("settings");
+
+    async function refreshState() {
+      const s = await fetchJson(`${API}/state`);
+      const fsmEl = document.getElementById("fsm-state");
+      fsmEl.textContent = s.fsm_state;
+      fsmEl.className = "fsm-badge fsm-" + s.fsm_state;
+
+      // Strategies
+      const body = document.getElementById("strategies-body");
+      const strats = s.strategies || [];
+      if (strats.length === 0) {
+        body.innerHTML = `<tr><td colspan="4" class="empty">無策略</td></tr>`;
+      } else {
+        body.innerHTML = "";
+        for (const st of strats) {
+          const actions = el("td", {});
+          for (const target of ["ACTIVE", "PAUSED", "LIQUIDATING", "STOPPED"]) {
+            if (target === st.state) continue;
+            actions.appendChild(el("button", {
+              style: "margin-right: 4px;",
+              onclick: async () => {
+                try {
+                  await fetchJson(`${API}/strategies/${st.strategy_id}/state`, {
+                    method: "POST",
+                    body: JSON.stringify({ state: target }),
+                  });
+                  toast(`${st.strategy_id} → ${target}`, "success");
+                  refreshState();
+                } catch (e) {
+                  toast("失敗：" + e.message, "error");
+                }
+              },
+            }, "→ " + target));
+          }
+          body.appendChild(el("tr", {},
+            el("td", { class: "mono" }, st.strategy_id),
+            el("td", {}, el("span", { class: "strategy-state strategy-state-" + st.state }, st.state)),
+            el("td", {}, st.version || "—"),
+            actions,
+          ));
+        }
+      }
+    }
+
+    async function refreshConfig() {
+      try {
+        const cfg = await fetchJson(`${API}/config`);
+        document.getElementById("config-display").textContent =
+          JSON.stringify(cfg, null, 2);
+      } catch (e) {
+        document.getElementById("config-display").textContent = "error: " + e.message;
+      }
+    }
+
+    document.getElementById("btn-reset").addEventListener("click", async () => {
+      try {
+        const r = await fetchJson(`${API}/risk/reset`, { method: "POST" });
+        if (r.ok) toast("已 reset", "success");
+        else toast("拒絕：" + r.message, "error");
+        refreshState();
+      } catch (e) { toast("失敗：" + e.message, "error"); }
+    });
+
+    document.getElementById("btn-maintenance").addEventListener("click", async () => {
+      try {
+        await fetchJson(`${API}/risk/maintenance`, {
+          method: "POST",
+          body: JSON.stringify({ action: "enter" }),
+        });
+        toast("已進入維護模式", "success");
+        refreshState();
+      } catch (e) { toast("失敗：" + e.message, "error"); }
+    });
+
+    document.getElementById("btn-exit-maintenance").addEventListener("click", async () => {
+      try {
+        await fetchJson(`${API}/risk/maintenance`, {
+          method: "POST",
+          body: JSON.stringify({ action: "exit" }),
+        });
+        toast("已退出維護模式", "success");
+        refreshState();
+      } catch (e) { toast("失敗：" + e.message, "error"); }
+    });
+
+    document.getElementById("btn-tick").addEventListener("click", async () => {
+      try {
+        const pnl = parseFloat(document.getElementById("sim-pnl").value);
+        const err = parseFloat(document.getElementById("sim-err").value);
+        const r = await fetchJson(`${API}/risk/tick`, {
+          method: "POST",
+          body: JSON.stringify({ daily_pnl_ratio: pnl, api_error_rate: err }),
+        });
+        toast(`Tick → ${r.fsm_state}`, "success");
+        refreshState();
+      } catch (e) { toast("失敗：" + e.message, "error"); }
+    });
+
+    document.getElementById("btn-send-webhook").addEventListener("click", async () => {
+      const secret = document.getElementById("webhook-secret").value.trim();
+      if (!secret) { toast("請填 secret", "error"); return; }
+      const symbol = document.getElementById("webhook-symbol").value.trim();
+      const side = document.getElementById("webhook-side").value;
+      const qty = document.getElementById("webhook-qty").value.trim();
+      const price = document.getElementById("webhook-price").value.trim();
+      const barTime = new Date(Date.now() - 2000).toISOString();
+      try {
+        const resp = await fetch(`/webhook/tv/${secret}/vibe_btc_v1`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            v: 1, strategy_id: "vibe_btc_v1", symbol, side, qty, price,
+            bar_time: barTime, interval: "60", comment: "ui sent",
+          }),
+        });
+        const data = await resp.json();
+        document.getElementById("webhook-status").textContent =
+          `HTTP ${resp.status} ${JSON.stringify(data)}`;
+        if (resp.ok && data.status === "accepted") toast("已送出 ✓", "success");
+        else toast("回應：" + JSON.stringify(data), resp.ok ? "info" : "error");
+      } catch (e) {
+        toast("失敗：" + e.message, "error");
+      }
+    });
+
+    document.getElementById("btn-refresh-audit").addEventListener("click", async () => {
+      try {
+        const events = await fetchJson(`${API}/audit?limit=20`);
+        const body = document.getElementById("audit-body");
+        if (!events || events.length === 0) {
+          body.innerHTML = `<tr><td colspan="3" class="empty">audit log 無內容</td></tr>`;
+          return;
+        }
+        body.innerHTML = "";
+        for (const e of events.reverse()) {
+          let kind = "Event";
+          let summary = "";
+          if ("from_state" in e) { kind = "StateChanged"; summary = `${e.from_state} → ${e.to_state}`; }
+          else if ("broker_order_id" in e) { kind = "OrderSubmitted"; summary = `${e.client_order_id} → ${e.broker_order_id}`; }
+          else if ("fill_id" in e) { kind = "FillProcessed"; summary = e.client_order_id; }
+          else if ("params_hash" in e) { kind = "ConfigLoaded"; summary = e.params_hash.slice(0, 16) + "…"; }
+          else if ("reservation_id" in e && "qty" in e) { kind = "ReservationCreated"; summary = e.reservation_id; }
+          else if ("reservation_id" in e) { kind = "ReservationReleased"; summary = e.reservation_id; }
+          body.appendChild(el("tr", {},
+            el("td", { class: "mono" }, fmt(e.at, "iso-time")),
+            el("td", {}, kind),
+            el("td", { class: "mono" }, fmt(summary, "short")),
+          ));
+        }
+      } catch (err) {
+        toast("讀 audit 失敗：" + err.message, "error");
+      }
+    });
+
+    refreshState();
+    refreshConfig();
+    setInterval(refreshState, 3000);
+  </script>
+</body>
+</html>

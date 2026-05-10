@@ -1,0 +1,1 @@
+"""SignalSource adapter 集。"""

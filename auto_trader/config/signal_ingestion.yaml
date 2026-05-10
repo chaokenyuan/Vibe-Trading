@@ -1,0 +1,23 @@
+# vibe-auto-trader 訊號入口配置
+# 修改後需重啟服務生效
+
+tradingview:
+  # 部署時務必改為強隨機值（建議 32 字元 url-safe base64）
+  # 範本檔不得寫入真實 secret；生產 deployment 由 env var 或 secrets manager 注入
+  secret: "REPLACE_ME_WITH_STRONG_SECRET"
+  # TradingView 官方 webhook IP（截至 2026 年；變動時請更新）
+  allowed_ips:
+    - 52.89.214.238
+    - 34.212.75.30
+    - 54.218.53.128
+    - 52.32.178.7
+
+dedupe:
+  ttl_seconds: 300        # 5 分鐘 TTL（與 risk-gate IdempotencyRule 一致）
+  max_entries: 100000     # LRU 上限
+
+webhook:
+  rate_limit_per_second: 10  # 每 IP 每秒上限（後續 hot-fix 調整）
+
+scanner:
+  schedule: "0 0 * * *"   # 每天 UTC 0:00 執行 vibe-trading scan_shadow_signals（stub 不使用）

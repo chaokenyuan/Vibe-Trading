@@ -1,0 +1,14 @@
+# vibe-auto-trader 可觀察性配置
+
+audit_log:
+  enabled: true
+  path: logs/audit.jsonl
+
+telegram:
+  enabled: false                          # 後續 change 啟用
+  bot_token_env: VIBE_TELEGRAM_BOT_TOKEN
+  chat_id_env: VIBE_TELEGRAM_CHAT_ID
+
+health:
+  service_name: vibe-auto-trader
+  version: 0.0.1

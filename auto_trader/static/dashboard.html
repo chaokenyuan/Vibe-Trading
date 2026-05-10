@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>vibe-auto-trader · Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>vibe-auto-trader</h1>
+    <nav>
+      <a href="/" data-page="dashboard">Dashboard</a>
+      <a href="/settings" data-page="settings">Settings</a>
+      <a href="/_health/health" target="_blank">Health</a>
+    </nav>
+    <span class="refresh-indicator">
+      <span class="refresh-dot"></span>每 2 秒更新
+    </span>
+  </header>
+
+  <main>
+    <div class="grid grid-3">
+      <div class="panel">
+        <h2>System</h2>
+        <div class="kv">
+          <div class="k">FSM 狀態</div>
+          <div class="v"><span id="fsm-state" class="fsm-badge fsm-NORMAL">—</span></div>
+          <div class="k">已啟動</div>
+          <div class="v" id="started-at">—</div>
+          <div class="k">當前時間</div>
+          <div class="v" id="now-time">—</div>
+          <div class="k">啟用規則</div>
+          <div class="v" id="enabled-rules">—</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Capital Ledger</h2>
+        <div class="kv">
+          <div class="k">總權益</div>
+          <div class="v" id="total-equity">—</div>
+          <div class="k">已預留</div>
+          <div class="v" id="total-reserved">—</div>
+          <div class="k">可用</div>
+          <div class="v" id="total-free">—</div>
+        </div>
+        <div class="progress">
+          <div class="progress-bar" id="reserved-progress" style="width: 0%"></div>
+        </div>
+        <div class="hint" id="reserved-hint">0% 預留</div>
+      </div>
+
+      <div class="panel">
+        <h2>Account PnL</h2>
+        <div class="kv">
+          <div class="k">總 PnL</div>
+          <div class="v" id="total-pnl">—</div>
+          <div class="k">已實現</div>
+          <div class="v" id="total-realized">—</div>
+          <div class="k">未實現</div>
+          <div class="v" id="total-unrealized">—</div>
+          <div class="k">手續費</div>
+          <div class="v" id="total-fees">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-2" style="margin-top: 16px;">
+      <div class="panel">
+        <h2>Equity Curve</h2>
+        <canvas id="equity-chart" height="200"></canvas>
+      </div>
+      <div class="panel">
+        <h2>BTCUSDT K 線（demo 隨機漫步）</h2>
+        <canvas id="kline-chart" height="200"></canvas>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top: 16px;">
+      <h2>Strategies</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Strategy ID</th>
+            <th>State</th>
+            <th>Version</th>
+            <th>Realized PnL</th>
+            <th>Unrealized PnL</th>
+            <th>Total PnL</th>
+            <th>Positions</th>
+          </tr>
+        </thead>
+        <tbody id="strategies-body">
+          <tr><td colspan="7" class="empty">loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="grid grid-2" style="margin-top: 16px;">
+      <div class="panel">
+        <h2>Logical Positions（含 PnL）</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Strategy</th>
+              <th>Symbol</th>
+              <th style="text-align: right;">Qty</th>
+              <th style="text-align: right;">Avg Entry</th>
+              <th style="text-align: right;">Last Px</th>
+              <th style="text-align: right;">Unrealized PnL</th>
+            </tr>
+          </thead>
+          <tbody id="positions-body">
+            <tr><td colspan="6" class="empty">loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <h2>Recent Broker Orders</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Client Order ID</th>
+              <th>Broker ID</th>
+              <th>Symbol</th>
+              <th style="text-align: right;">Qty</th>
+            </tr>
+          </thead>
+          <tbody id="orders-body">
+            <tr><td colspan="4" class="empty">loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top: 16px;">
+      <h2>Reservation Bridge</h2>
+      <div class="kv">
+        <div class="k">Mapping size</div>
+        <div class="v" id="bridge-size">—</div>
+        <div class="k">活躍訂單數</div>
+        <div class="v" id="active-orders">—</div>
+      </div>
+      <div class="hint">追蹤 client_order_id ↔ reservation_id；fill 或 reject 即釋放</div>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script>
+    setActivePage("dashboard");
+
+    // ===== Chart 初始化 =====
+
+    const chartOpts = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: "#aaa" } } },
+      scales: {
+        x: { ticks: { color: "#888", maxTicksLimit: 6 } },
+        y: { ticks: { color: "#888" } },
+      },
+    };
+
+    const equityChart = new Chart(document.getElementById("equity-chart"), {
+      type: "line",
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: "Equity + PnL",
+            data: [],
+            borderColor: "#4af",
+            backgroundColor: "rgba(68,170,255,0.1)",
+            tension: 0.2,
+            pointRadius: 0,
+            fill: true,
+          },
+          {
+            label: "Reserved",
+            data: [],
+            borderColor: "#fc4",
+            tension: 0.2,
+            pointRadius: 0,
+          },
+        ],
+      },
+      options: chartOpts,
+    });
+
+    const klineChart = new Chart(document.getElementById("kline-chart"), {
+      type: "line",
+      data: {
+        labels: [],
+        datasets: [
+          { label: "Close", data: [], borderColor: "#4af", pointRadius: 0, tension: 0 },
+          { label: "High",  data: [], borderColor: "#4a4", pointRadius: 0, tension: 0, borderDash: [4,2] },
+          { label: "Low",   data: [], borderColor: "#f44", pointRadius: 0, tension: 0, borderDash: [4,2] },
+        ],
+      },
+      options: chartOpts,
+    });
+
+    function shortTime(iso) {
+      try {
+        const d = new Date(iso);
+        return d.toTimeString().slice(0, 8);
+      } catch { return ""; }
+    }
+
+    function colorPnL(value) {
+      const v = parseFloat(value);
+      if (isNaN(v)) return "—";
+      const cls = v > 0 ? "side-BUY" : v < 0 ? "side-SELL" : "";
+      return `<span class="${cls}">${v.toFixed(2)}</span>`;
+    }
+
+    // ===== 主 render =====
+
+    function renderState(s, pnl) {
+      // FSM
+      const fsmEl = document.getElementById("fsm-state");
+      fsmEl.textContent = s.fsm_state;
+      fsmEl.className = "fsm-badge fsm-" + s.fsm_state;
+
+      document.getElementById("started-at").textContent = fmt(s.started_at, "iso-time");
+      document.getElementById("now-time").textContent = fmt(s.now, "iso-time");
+      document.getElementById("enabled-rules").textContent = (s.enabled_rules || []).length + " rules";
+
+      // Ledger
+      const eq = parseFloat(s.ledger.total_equity);
+      const reserved = parseFloat(s.ledger.total_reserved);
+      const free = parseFloat(s.ledger.total_free);
+      document.getElementById("total-equity").textContent = fmt(eq, "decimal");
+      document.getElementById("total-reserved").textContent = fmt(reserved, "decimal");
+      document.getElementById("total-free").textContent = fmt(free, "decimal");
+      const pct = eq > 0 ? (reserved / eq * 100).toFixed(1) : 0;
+      document.getElementById("reserved-progress").style.width = pct + "%";
+      document.getElementById("reserved-hint").textContent = pct + "% 預留";
+
+      // PnL
+      document.getElementById("total-pnl").innerHTML = colorPnL(pnl.total_pnl);
+      document.getElementById("total-realized").innerHTML = colorPnL(pnl.total_realized);
+      document.getElementById("total-unrealized").innerHTML = colorPnL(pnl.total_unrealized);
+      document.getElementById("total-fees").textContent = fmt(pnl.total_fees, "decimal");
+
+      // Bridge
+      document.getElementById("bridge-size").textContent = s.reservation_bridge_mapping_size;
+      document.getElementById("active-orders").textContent = (s.broker_orders || []).length;
+
+      // Strategies + per-strategy PnL
+      const stratPnL = {};
+      for (const sp of pnl.strategies || []) stratPnL[sp.strategy_id] = sp;
+
+      const stratBody = document.getElementById("strategies-body");
+      const strats = s.strategies || [];
+      if (strats.length === 0) {
+        stratBody.innerHTML = `<tr><td colspan="7" class="empty">尚無註冊策略</td></tr>`;
+      } else {
+        stratBody.innerHTML = "";
+        for (const st of strats) {
+          const positionsCount = (s.logical_books[st.strategy_id] || []).length;
+          const sp = stratPnL[st.strategy_id];
+          const realizedHTML = sp ? colorPnL(sp.realized_pnl) : "—";
+          const unrealHTML = sp ? colorPnL(sp.unrealized_pnl) : "—";
+          const totalHTML = sp ? colorPnL(sp.total_pnl) : "—";
+          const tr = el("tr", {},
+            el("td", {}, st.strategy_id),
+            el("td", {}, el("span", { class: "strategy-state strategy-state-" + st.state }, st.state)),
+            el("td", {}, st.version || "—"),
+          );
+          const td1 = el("td", {});
+          td1.innerHTML = realizedHTML;
+          tr.appendChild(td1);
+          const td2 = el("td", {});
+          td2.innerHTML = unrealHTML;
+          tr.appendChild(td2);
+          const td3 = el("td", {});
+          td3.innerHTML = totalHTML;
+          tr.appendChild(td3);
+          tr.appendChild(el("td", {}, String(positionsCount)));
+          stratBody.appendChild(tr);
+        }
+      }
+
+      // Positions（含 last + unrealized）
+      const posBody = document.getElementById("positions-body");
+      const allPositions = [];
+      for (const sp of pnl.strategies || []) {
+        for (const p of sp.positions) allPositions.push({ strategy_id: sp.strategy_id, ...p });
+      }
+      if (allPositions.length === 0) {
+        posBody.innerHTML = `<tr><td colspan="6" class="empty">無持倉</td></tr>`;
+      } else {
+        posBody.innerHTML = "";
+        for (const p of allPositions) {
+          const qtyClass = parseFloat(p.qty) >= 0 ? "side-BUY" : "side-SELL";
+          const tr = el("tr", {},
+            el("td", {}, p.strategy_id),
+            el("td", {}, p.symbol),
+            el("td", { style: "text-align: right;", class: qtyClass }, fmt(p.qty, "decimal")),
+            el("td", { style: "text-align: right;" }, fmt(p.avg_entry, "decimal")),
+            el("td", { style: "text-align: right;" }, fmt(p.last_price, "decimal")),
+          );
+          const tdPnL = el("td", { style: "text-align: right;" });
+          tdPnL.innerHTML = colorPnL(p.unrealized_pnl);
+          tr.appendChild(tdPnL);
+          posBody.appendChild(tr);
+        }
+      }
+
+      // Orders
+      const ordBody = document.getElementById("orders-body");
+      const orders = s.broker_orders || [];
+      if (orders.length === 0) {
+        ordBody.innerHTML = `<tr><td colspan="4" class="empty">尚無訂單</td></tr>`;
+      } else {
+        ordBody.innerHTML = "";
+        for (const o of orders.slice(-20).reverse()) {
+          ordBody.appendChild(el("tr", {},
+            el("td", {}, fmt(o.client_order_id, "short")),
+            el("td", {}, o.broker_order_id || "—"),
+            el("td", {}, o.symbol),
+            el("td", { style: "text-align: right;" }, fmt(o.qty, "decimal")),
+          ));
+        }
+      }
+    }
+
+    function renderEquity(history) {
+      const labels = history.map((h) => shortTime(h.at));
+      const equityWithPnL = history.map((h) =>
+        parseFloat(h.total_equity) + parseFloat(h.total_pnl)
+      );
+      const reserved = history.map((h) => parseFloat(h.total_reserved));
+      equityChart.data.labels = labels;
+      equityChart.data.datasets[0].data = equityWithPnL;
+      equityChart.data.datasets[1].data = reserved;
+      equityChart.update("none");
+    }
+
+    function renderKline(candles) {
+      const labels = candles.map((c) => shortTime(c.at));
+      klineChart.data.labels = labels;
+      klineChart.data.datasets[0].data = candles.map((c) => c.close);
+      klineChart.data.datasets[1].data = candles.map((c) => c.high);
+      klineChart.data.datasets[2].data = candles.map((c) => c.low);
+      klineChart.update("none");
+    }
+
+    async function refresh() {
+      try {
+        const [s, pnl, eq, kline] = await Promise.all([
+          fetchJson(`${API}/state`),
+          fetchJson(`${API}/pnl`),
+          fetchJson(`${API}/equity-history`),
+          fetchJson(`${API}/kline/BTCUSDT`),
+        ]);
+        renderState(s, pnl);
+        renderEquity(eq);
+        renderKline(kline);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 2000);
+  </script>
+</body>
+</html>

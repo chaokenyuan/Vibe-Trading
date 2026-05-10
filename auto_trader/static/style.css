@@ -1,0 +1,248 @@
+/* vibe-auto-trader UI 共用樣式（深色主題） */
+
+:root {
+  --bg: #1a1a1a;
+  --panel: #242424;
+  --panel-2: #2e2e2e;
+  --border: #3a3a3a;
+  --text: #e0e0e0;
+  --text-dim: #888;
+  --accent: #4af;
+  --accent-dim: #2a6;
+
+  --state-normal: #4a4;
+  --state-warning: #fc4;
+  --state-throttled: #f84;
+  --state-halted: #f44;
+  --state-kill: #f08;
+  --state-maintenance: #888;
+
+  --buy: #4a4;
+  --sell: #f44;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+code, pre, .mono {
+  font-family: "SF Mono", Menlo, Monaco, monospace;
+  font-size: 12px;
+}
+
+header {
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+header h1 {
+  font-size: 16px;
+  margin: 0;
+  color: var(--accent);
+}
+
+header nav { display: flex; gap: 12px; }
+header nav a {
+  padding: 4px 10px;
+  border-radius: 4px;
+}
+header nav a.active {
+  background: var(--accent);
+  color: #000;
+}
+
+main {
+  padding: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.grid {
+  display: grid;
+  gap: 16px;
+}
+.grid-3 { grid-template-columns: repeat(3, 1fr); }
+.grid-2 { grid-template-columns: repeat(2, 1fr); }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+}
+
+.panel h2 {
+  font-size: 13px;
+  margin: 0 0 12px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  row-gap: 6px;
+  column-gap: 12px;
+}
+.kv .k { color: var(--text-dim); }
+.kv .v { font-family: "SF Mono", Menlo, monospace; }
+
+.fsm-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 14px;
+}
+.fsm-NORMAL { background: var(--state-normal); color: #000; }
+.fsm-WARNING { background: var(--state-warning); color: #000; }
+.fsm-THROTTLED { background: var(--state-throttled); color: #000; }
+.fsm-HALTED { background: var(--state-halted); color: #fff; }
+.fsm-KILL_SWITCH { background: var(--state-kill); color: #fff; }
+.fsm-MAINTENANCE { background: var(--state-maintenance); color: #000; }
+
+.strategy-state {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: "SF Mono", Menlo, monospace;
+}
+.strategy-state-LOADED { background: #555; color: #fff; }
+.strategy-state-ACTIVE { background: var(--state-normal); color: #000; }
+.strategy-state-PAUSED { background: var(--state-warning); color: #000; }
+.strategy-state-LIQUIDATING { background: var(--state-throttled); color: #000; }
+.strategy-state-STOPPED { background: var(--state-maintenance); color: #000; }
+.strategy-state-FAILED { background: var(--state-halted); color: #fff; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 12px;
+}
+th, td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+th {
+  background: var(--panel-2);
+  color: var(--text-dim);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
+tr:hover { background: var(--panel-2); }
+
+.side-BUY { color: var(--buy); font-weight: 600; }
+.side-SELL { color: var(--sell); font-weight: 600; }
+.side-CLOSE { color: var(--accent); font-weight: 600; }
+
+.empty { color: var(--text-dim); font-style: italic; padding: 20px; text-align: center; }
+
+button, .btn {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+}
+button:hover, .btn:hover { background: var(--accent); color: #000; }
+button.danger:hover { background: var(--state-halted); color: #fff; }
+button.warning:hover { background: var(--state-warning); color: #000; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+input[type="text"], input[type="number"], select {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.progress {
+  width: 100%;
+  height: 12px;
+  background: var(--panel-2);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.progress-bar {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 16px;
+  z-index: 100;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.toast.show { opacity: 1; }
+.toast.error { border-color: var(--state-halted); }
+.toast.success { border-color: var(--state-normal); }
+
+.refresh-indicator {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: auto;
+}
+.refresh-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 4px;
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.hint {
+  color: var(--text-dim);
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.section-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.section-row:last-child { border-bottom: none; }

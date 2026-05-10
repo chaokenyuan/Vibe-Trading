@@ -1,0 +1,7 @@
+# vibe-auto-trader 訂單執行配置
+# 部署時改 broker 並從環境變數注入 API key
+
+broker: mock                          # mock / binance / okx / bybit
+testnet: true                         # production 部署時設 false
+api_key_env: VIBE_BROKER_API_KEY      # 不寫入配置，由環境變數注入
+api_secret_env: VIBE_BROKER_API_SECRET

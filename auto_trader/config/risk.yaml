@@ -1,0 +1,56 @@
+# vibe-auto-trader 風控閘配置
+# 修改後需重啟服務生效（D4 凍結決策）
+# 詳細規格：openspec/changes/add-risk-gate/specs/risk-gate/spec.md
+
+fsm:
+  thresholds:
+    daily_pnl_warning: -0.02            # -2% 進入 WARNING
+    daily_pnl_throttled: -0.03          # -3% 進入 THROTTLED
+    daily_pnl_halted: -0.05             # -5% 進入 HALTED
+    daily_pnl_kill: -0.07               # -7% 觸發 KILL_SWITCH
+    api_error_rate_throttled: 0.05      # API 錯誤率 5% 進入 THROTTLED
+    kill_switch_cooling_seconds: 14400  # KILL_SWITCH 冷靜期 4 小時
+  tick_interval_seconds: 60             # FSM tick 週期
+
+clock:
+  tz: UTC                               # 跨日 P&L 重置時區（E7 凍結 = UTC 0:00）
+
+warming_up:
+  duration_seconds: 30                  # 啟動暖機期（死角備案凍結項）
+
+rules:
+  # 啟用順序即執行順序，前段為 reject 類短路、後段為 clamp 類累積
+  enabled:
+    - SystemStateRule
+    - IdempotencyRule
+    - SignalFreshnessRule
+    - SymbolWhitelistRule
+    - StrategyPausedRule
+    - PerOrderSizeCap
+    - StrategyBudgetCap
+    - SymbolConcentrationCap
+    - ThrottleScaler
+    - PriceSanityCheck
+    - CapitalReservationRule
+
+  params:
+    SystemStateRule:
+      throttled_size_scaler: 0.5
+    IdempotencyRule:
+      ttl_seconds: 300                  # D6 凍結 5 分鐘
+      max_entries: 100000               # LRU 上限
+    SignalFreshnessRule:
+      max_age_seconds: 30
+    SymbolWhitelistRule:
+      symbols: []                       # 空清單代表全部接受
+    StrategyPausedRule: {}
+    PerOrderSizeCap:
+      max_pct_of_equity: 0.05           # 單筆 5%
+    StrategyBudgetCap: {}               # 由 ledger 動態計算
+    SymbolConcentrationCap:
+      max_pct_of_equity: 0.20           # 單一標的 20%
+    ThrottleScaler:
+      scaler: 0.5
+    PriceSanityCheck:
+      max_deviation_pct: 0.05           # 偏離 last 5%
+    CapitalReservationRule: {}          # 由 reserver 處理

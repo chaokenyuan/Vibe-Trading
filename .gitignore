@@ -63,3 +63,11 @@ NOTES.md
 
 # Agent tool aliases (auto-generated mirror of CLAUDE.md)
 AGENTS.md
+
+# auto_trader 子系統
+auto_trader/.venv/
+auto_trader/logs/
+auto_trader/.pytest_cache/
+auto_trader/__pycache__/
+auto_trader/**/__pycache__/
+auto_trader/*.egg-info/
